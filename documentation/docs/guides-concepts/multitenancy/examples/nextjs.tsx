@@ -13,25 +13,29 @@ export default function RouteDefinitions() {
         "@refinedev/core": "latest",
       }}
       files={{
-        "/app/root.tsx": {
+        "/pages/_app.tsx": {
           code: AppTsxCode,
           active: true,
           readOnly: true,
         },
-        "/app/routes/$tenantId.products._index.tsx": {
+        "/pages/[tenantId]/products/index.tsx": {
           code: ListTsxCode,
           readOnly: true,
         },
-        "/app/routes/$tenantId.products.create.tsx": {
+        "/pages/[tenantId]/products/create.tsx": {
           code: CreateTsxCode,
           readOnly: true,
         },
-        "/app/routes/$tenantId.products.$id._index.tsx": {
+        "/pages/[tenantId]/products/[id]/index.tsx": {
           code: ShowTsxCode,
           readOnly: true,
         },
-        "/app/routes/$tenantId.products.$id.edit.tsx": {
+        "/pages/[tenantId]/products/[id]/edit.tsx": {
           code: EditTsxCode,
+          readOnly: true,
+        },
+        "/providers/multitenancy.ts": {
+          code: MultitenancyProviderTsxCode,
           readOnly: true,
         },
       }}
@@ -42,29 +46,19 @@ export default function RouteDefinitions() {
 const AppTsxCode = /* jsx */ `
 import React from "react";
 
-import {
-  Links,
-  LiveReload,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-} from "@remix-run/react";
-
-import { Refine } from "@refinedev/core";
-import routerProvider from "@refinedev/remix-router";
+import { RefineEnterprise } from "@refinedev-ee/enterprise";
+import { WithTenant } from "@refinedev-ee/multitenancy";
+import routerProvider from "@refinedev/nextjs-router/pages";
 import dataProvider from "@refinedev/simple-rest";
+import type { AppProps } from "next/app";
 
-export default function App() {
-  return (
-    <html lang="en">
-      <head>
-        <Meta />
-        <Links />
-      </head>
-      <body>
-        <Refine
-        dataProvider={dataProvider("<API_URL>")}
+import { multitenancyProvider } from "./providers/multitenancy";
+
+function App({ Component, pageProps }: AppProps) {
+    return (
+      <RefineEnterprise
+          multitenancyProvider={multitenancyProvider}
+          dataProvider={dataProvider("<API_URL>")}
           routerProvider={routerProvider}
           resources={[
             {
@@ -76,16 +70,18 @@ export default function App() {
               create: "/:tenantId/products/create",
             },
           ]}
+      >
+        <WithTenant
+          fallback={<div>Tenant not found</div>}
+          loadingComponent={<div>Loading...</div>}
         >
-          <Outlet />
-        </Refine>
-        <ScrollRestoration />
-        <Scripts />
-        <LiveReload />
-      </body>
-    </html>
-  );
+          <Component {...pageProps} />
+        </WithTenant>
+      </RefineEnterprise>
+    );
 }
+
+export default App;
 `.trim();
 
 const ListTsxCode = /* jsx */ `
@@ -140,9 +136,7 @@ import React from "react";
 import { useShow } from "@refinedev/core";
 
 export default function ProductsShow() {
-  const {
-    query: { data, isLoading },
-  } = useShow();
+  const { query: { data, isLoading } } = useShow();
   const record = data?.data;
 
   if (isLoading) {
@@ -182,4 +176,34 @@ export default function ProductsEdit() {
     </div>
   );
 }
+`.trim();
+
+const MultitenancyProviderTsxCode = /* jsx */ `
+import type { MultiTenancyProvider } from "@refinedev-ee/enterprise";
+import { useRouterAdapter } from "@refinedev-ee/multitenancy";
+import dataProvider from "@refinedev/simple-rest";
+
+export type Tenant = {
+  id: string;
+  name: string;
+};
+
+export const multitenancyProvider: MultiTenancyProvider = {
+  adapter: useRouterAdapter(),
+  fetchTenants: async () => {
+    const response = await dataProvider("<API_URL>").getList<Tenant>({
+      resource: "categories",
+      pagination: {
+        mode: "off",
+      },
+    });
+    const tenants = response.data;
+    const defaultTenant = tenants[0];
+
+    return {
+      tenants,
+      defaultTenant,
+    };
+  },
+};
 `.trim();
